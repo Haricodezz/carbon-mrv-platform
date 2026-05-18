@@ -1,75 +1,89 @@
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from uuid import UUID
 
 from app.db.session import get_db
 from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.schemas.purchase import (
-    PurchaseCreditsRequest,
-    PurchaseHistoryResponse,
+    PurchaseInitiateRequest,
+    PurchaseInitiateResponse,
+    PurchaseVerifyRequest,
     PurchaseResponse,
+    PurchaseHistoryResponse,
+    CreditOwnershipResponse
 )
-from app.services.marketplace_service import (
-    list_user_purchases,
-    purchase_project_credits,
+from app.services.purchase_service import (
+    initiate_purchase,
+    verify_and_complete_purchase,
+    get_user_purchase_history,
+    get_user_credit_ownership
 )
-
 
 router = APIRouter(
     prefix="/api/purchases",
     tags=["Purchases"]
 )
 
-
-@router.post("/{project_id}", response_model=PurchaseResponse)
-def purchase_carbon_credits(
-    project_id: str,
-    amount: float | None = None,
-    payload: PurchaseCreditsRequest | None = Body(default=None),
+@router.post("/initiate", response_model=PurchaseInitiateResponse)
+def api_initiate_purchase(
+    payload: PurchaseInitiateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
-    purchase_amount = payload.amount if payload else amount
-    blockchain_tx_hash = payload.blockchain_tx_hash if payload else None
-
-    if purchase_amount is None:
-        purchase_amount = 1
-
-    purchase, order, transaction, project = purchase_project_credits(
+    """
+    Step 1: Initiate a purchase by creating a Razorpay order.
+    """
+    return initiate_purchase(
         db=db,
-        project_id=project_id,
-        buyer=current_user,
-        amount=purchase_amount,
-        blockchain_tx_hash=blockchain_tx_hash,
+        user=current_user,
+        project_id=payload.project_id,
+        amount=payload.amount
+    )
+
+@router.post("/verify", response_model=PurchaseResponse)
+def api_verify_purchase(
+    payload: PurchaseVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Step 2: Verify Razorpay payment and finalize purchase.
+    """
+    purchase = verify_and_complete_purchase(
+        db=db,
+        user=current_user,
+        project_id=payload.project_id,
+        amount=payload.amount,
+        razorpay_order_id=payload.razorpay_order_id,
+        razorpay_payment_id=payload.razorpay_payment_id,
+        razorpay_signature=payload.razorpay_signature
     )
 
     return {
-        "message": "Carbon credits purchased successfully.",
+        "message": "Payment verified and credits purchased successfully.",
         "purchase_id": purchase.id,
-        "order_id": order.id,
-        "transaction_id": transaction.id,
-        "project_id": project.id,
-        "buyer_wallet": current_user.wallet_address,
+        "transaction_id": purchase.transaction_id,
+        "project_id": purchase.project_id,
         "credits_purchased": purchase.credits_purchased,
-        "remaining_credits": project.credits_available,
-        "price_per_credit": purchase.price_per_credit,
         "total_price": purchase.total_price,
         "currency": purchase.currency,
-        "status": purchase.status,
+        "status": purchase.status
     }
 
-
 @router.get("/history", response_model=list[PurchaseHistoryResponse])
-def get_purchase_history(
+def api_get_purchase_history(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
+    """
+    Get the purchase history for the current company.
+    """
+    results = get_user_purchase_history(db, current_user.id)
     return [
         {
             "purchase_id": purchase.id,
-            "order_id": purchase.order_id,
-            "transaction_id": purchase.transaction_id,
-            "project_id": purchase.project_id,
+            "project_id": project.id,
             "project_name": project.project_name,
             "credits_purchased": purchase.credits_purchased,
             "price_per_credit": purchase.price_per_credit,
@@ -77,7 +91,26 @@ def get_purchase_history(
             "currency": purchase.currency,
             "blockchain_tx_hash": purchase.blockchain_tx_hash,
             "status": purchase.status,
-            "created_at": purchase.created_at,
+            "created_at": purchase.created_at
         }
-        for purchase, project in list_user_purchases(db, current_user)
+        for purchase, project in results
+    ]
+
+@router.get("/credits", response_model=list[CreditOwnershipResponse])
+def api_get_credit_ownership(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the current credit ownership balance for the company.
+    """
+    results = get_user_credit_ownership(db, current_user.id)
+    return [
+        {
+            "project_id": project.id,
+            "project_name": project.project_name,
+            "total_credits_owned": ownership.total_credits_owned,
+            "updated_at": ownership.updated_at
+        }
+        for ownership, project in results
     ]

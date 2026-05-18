@@ -7,5 +7,6 @@ from app.models.escrow import EscrowTransaction
 from app.models.order import Order
 from app.models.purchase import Purchase
 from app.models.transaction import Transaction
+from app.models.credit_ownership import CreditOwnership
 
 
