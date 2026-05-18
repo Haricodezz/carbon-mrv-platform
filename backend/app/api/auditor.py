@@ -52,8 +52,18 @@ def approve_project(
             detail="Project not found."
         )
 
+    if project.satellite_status != "verified":
+        raise HTTPException(
+            status_code=400,
+            detail="Project must pass satellite verification before approval."
+        )
+
     project.audit_status = "approved"
-    project.status = "active"
+    project.status = "marketplace"
+    if not project.credits_available:
+        project.credits_available = float(
+            project.total_credits_generated or project.estimated_credits or 0
+        )
 
     db.commit()
 
