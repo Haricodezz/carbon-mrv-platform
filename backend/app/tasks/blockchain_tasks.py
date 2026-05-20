@@ -91,6 +91,29 @@ def mint_project_credits_task(
             project.estimated_credits
         )
 
+        # Sync with internal wallet and credit ownership
+        from app.services.wallet_service import wallet_service
+        from app.models.credit_ownership import CreditOwnership
+        
+        # 1. Update wallet balance
+        wallet_service.update_balances_from_purchase(db, owner.id, float(project.estimated_credits))
+        
+        # 2. Update credit ownership ledger
+        ownership = db.query(CreditOwnership).filter(
+            CreditOwnership.owner_id == owner.id,
+            CreditOwnership.project_id == project.id
+        ).first()
+        
+        if not ownership:
+            ownership = CreditOwnership(
+                owner_id=owner.id,
+                project_id=project.id,
+                total_credits_owned=float(project.estimated_credits)
+            )
+            db.add(ownership)
+        else:
+            ownership.total_credits_owned += float(project.estimated_credits)
+
         db.commit()
         db.refresh(project)
 

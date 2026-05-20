@@ -26,6 +26,12 @@ contract CarbonCreditToken is ERC20, Ownable {
         string reason
     );
 
+    event AdminTransferred(
+        address indexed from,
+        address indexed to,
+        uint256 amount
+    );
+
     modifier onlyMinter() {
         require(
             approvedMinters[msg.sender] || owner() == msg.sender,
@@ -88,6 +94,41 @@ contract CarbonCreditToken is ERC20, Ownable {
             amount,
             reason
         );
+    }
+
+    /**
+     * @dev Allows the platform admin (contract owner) to transfer tokens between addresses.
+     * Useful for web2 payment integration (e.g., Razorpay) where users do not pay gas.
+     */
+    function adminTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) external onlyOwner {
+        require(balanceOf(from) >= amount, "Insufficient source balance");
+        _transfer(from, to, amount);
+        emit AdminTransferred(from, to, amount);
+    }
+
+    /**
+     * @dev Allows the platform admin (contract owner) to burn/retire credits on behalf of a user.
+     * Keeps blockchain in sync with user actions signed by treasury.
+     */
+    function adminRetire(
+        address account,
+        uint256 amount,
+        string memory reason
+    ) external onlyOwner {
+        require(balanceOf(account) >= amount, "Insufficient balance");
+        _burn(account, amount);
+        retirementHistory[account].push(
+            RetirementRecord({
+                amount: amount,
+                reason: reason,
+                timestamp: block.timestamp
+            })
+        );
+        emit CreditsRetired(account, amount, reason);
     }
 
     function getRetirementHistory(

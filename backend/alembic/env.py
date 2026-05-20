@@ -8,12 +8,22 @@ from alembic import context
 from app.core.config import settings
 from app.db.session import Base
 
-# Import all models
+# Import all models to ensure they are registered on Base.metadata for Alembic
 from app.models.user import User
 from app.models.project import Project
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
-from app.models.marketplace import MarketplaceListing
+from app.models.purchase import Purchase
+from app.models.payment import Payment
+from app.models.order import Order
+from app.models.certificate import Certificate
+from app.models.escrow import EscrowTransaction
+from app.models.credit_ownership import CreditOwnership
+from app.models.audit_log import AuditLog
+from app.models.blog_post import BlogPost
+from app.models.notification import Notification
+from app.models.kyc_verification import KYCVerification
+from app.models.land_verification import LandVerification
 
 
 # =========================
@@ -24,7 +34,7 @@ config = context.config
 # Dynamic DB URL from .env
 config.set_main_option(
     "sqlalchemy.url",
-    settings.DATABASE_URL,
+    settings.DATABASE_URL.replace("%", "%%"),
 )
 
 # Logging

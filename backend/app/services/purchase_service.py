@@ -12,6 +12,7 @@ from app.models.order import Order
 from app.models.wallet import Wallet
 from app.models.credit_ownership import CreditOwnership
 from app.services.payment_service import payment_service
+from app.services.wallet_service import wallet_service
 from app.core.config import settings
 
 COMPANY_ROLE = "company"
@@ -157,18 +158,13 @@ def verify_and_complete_purchase(
             ownership = CreditOwnership(
                 owner_id=user.id,
                 project_id=project_id,
-                total_credits_owned=amount
+                total_credits_owned=amount,
+                last_purchase_id=purchase.id
             )
             db.add(ownership)
 
-        # Update Wallet (Fiat Balance if applicable, but Razorpay is external)
-        # We might want to record that the user spent money
-        wallet = db.query(Wallet).filter(Wallet.user_id == user.id).first()
-        if wallet:
-            # For direct Razorpay, we don't necessarily deduct from fiat_balance 
-            # unless it was a deposit first. But here we can record the "outflow"
-            # or just leave it as it is an external payment.
-            pass
+        # Update Wallet (New production logic)
+        wallet_service.update_balances_from_purchase(db, user.id, amount)
 
         db.commit()
         db.refresh(purchase)

@@ -119,6 +119,10 @@ def download_certificate(
         certificate_data
     )
 
+    if pdf_path.startswith("http://") or pdf_path.startswith("https://"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=pdf_path)
+
     return FileResponse(
         path=pdf_path,
         filename=f"{certificate_data['certificate_id']}.pdf",

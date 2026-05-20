@@ -56,6 +56,7 @@ def verify_project_task(
                 latitude=project.latitude,
                 longitude=project.longitude,
                 land_area_acres=project.land_area_acres,
+                polygon_coordinates=project.polygon_coordinates,
             )
         )
 
@@ -163,6 +164,7 @@ def reverify_marketplace_projects():
                     latitude=project.latitude,
                     longitude=project.longitude,
                     land_area_acres=project.land_area_acres,
+                    polygon_coordinates=project.polygon_coordinates,
                 )
             )
 

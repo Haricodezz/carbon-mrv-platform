@@ -1,36 +1,12 @@
+version: '3.8'
+
 services:
   # =========================
-  # FASTAPI BACKEND
-  # =========================
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: carbon_mrv_backend
-    restart: always
-    command: >
-      uvicorn app.main:app
-      --host 0.0.0.0
-      --port 8000
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - .:/app
-      - certificates_data:/app/storage/certificates
-    networks:
-      - carbon_network
-
-  # =========================
-  # POSTGRESQL
+  # POSTGRESQL DATABASE
   # =========================
   postgres:
     image: postgres:15
-    container_name: carbon_mrv_postgres
+    container_name: carbon_postgres
     restart: always
     environment:
       POSTGRES_USER: carbon_admin
@@ -44,11 +20,11 @@ services:
       - carbon_network
 
   # =========================
-  # REDIS
+  # REDIS (Message Broker)
   # =========================
   redis:
-    image: redis:7
-    container_name: carbon_mrv_redis
+    image: redis:7-alpine
+    container_name: carbon_redis
     restart: always
     ports:
       - "6379:6379"
@@ -58,71 +34,63 @@ services:
       - carbon_network
 
   # =========================
+  # FASTAPI BACKEND
+  # =========================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: carbon_backend
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - carbon_network
+
+  # =========================
   # CELERY WORKER
   # =========================
   celery_worker:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: carbon_mrv_celery_worker
+    container_name: carbon_celery_worker
     restart: always
-    command: >
-      celery -A celery_worker worker
-      --loglevel=info
+    command: celery -A celery_worker worker --loglevel=info
     env_file:
-      - .env
+      - ./backend/.env
     depends_on:
       - backend
       - redis
       - postgres
     volumes:
-      - .:/app
-      - certificates_data:/app/storage/certificates
+      - ./backend:/app
     networks:
       - carbon_network
 
   # =========================
-  # CELERY BEAT
+  # NEXT.JS FRONTEND
   # =========================
-  celery_beat:
+  frontend:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile
-    container_name: carbon_mrv_celery_beat
+    container_name: carbon_frontend
     restart: always
-    command: >
-      celery -A celery_worker beat
-      --loglevel=info
-    env_file:
-      - .env
-    depends_on:
-      - backend
-      - redis
-      - postgres
-    volumes:
-      - .:/app
-    networks:
-      - carbon_network
-
-  # =========================
-  # FLOWER MONITORING
-  # =========================
-  flower:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: carbon_mrv_flower
-    restart: always
-    command: >
-      celery -A celery_worker flower
-      --port=5555
     ports:
-      - "5555:5555"
-    env_file:
-      - .env
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
-      - redis
-      - celery_worker
+      - backend
     networks:
       - carbon_network
 
@@ -132,10 +100,9 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  certificates_data:
 
 # =========================
-# NETWORK
+# NETWORKS
 # =========================
 networks:
   carbon_network:

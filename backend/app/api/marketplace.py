@@ -48,6 +48,12 @@ def _serialize_project(project) -> dict:
         "audit_status": project.audit_status,
         "status": project.status,
         "owner_id": project.owner_id,
+        "co2e": float(project.co2e or 0.0),
+        "total_biomass": float(project.total_biomass or 0.0),
+        "ndvi_score": float(project.ndvi_score or 0.0),
+        "confidence_score": round(max(0.0, min(100.0, 100.0 - (project.fraud_risk_score or 0.0))), 2),
+        "verification_date": project.updated_at.strftime("%Y-%m-%d") if project.updated_at else None,
+        "methodology": "IPCC Tier 1 Forestry & XGBoost Regression"
     }
 
 

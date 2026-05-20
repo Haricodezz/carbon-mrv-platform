@@ -1,5 +1,21 @@
 # Code fixes changelog
 
+**Date:** May 19, 2026  
+**Scope:** Full-stack local development stability (backend + frontend integration)
+
+### May 19, 2026 — Local dev audit
+
+See [LOCAL_DEV_AUDIT.md](./LOCAL_DEV_AUDIT.md) for full details. Highlights:
+
+- Razorpay placeholder key detection (mock payments)
+- Purchase API path alignment (`create-order`, `verify-payment`)
+- Wallet balance updates on purchase completion
+- Rolling Sentinel-2 date range + biomass heuristic fallback
+- Dashboard sidebar navigation routes
+- `frontend/.env.example` added
+
+---
+
 **Date:** May 18, 2026  
 **Scope:** `carbon-mrv-platform/frontend` (TypeScript, ESLint, Next.js build)
 

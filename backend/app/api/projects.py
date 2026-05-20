@@ -1,11 +1,9 @@
 from uuid import UUID
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from shapely.geometry import Polygon
-from pyproj import Geod
-import json
 
 from app.db.session import get_db
 from app.models.project import Project
@@ -60,6 +58,10 @@ def _get_project_or_404(db: Session, project_id: str) -> Project:
 
 
 def _normalize_polygon_coordinates(raw_polygon: str):
+    # Deferred GIS imports — avoids slow startup if these libs are heavy
+    from shapely.geometry import Polygon
+    from pyproj import Geod
+
     try:
         payload = json.loads(raw_polygon)
     except json.JSONDecodeError as exc:
@@ -160,7 +162,7 @@ def _assert_project_access(project: Project, current_user: User):
     if current_user.role in ["admin", "auditor"]:
         return
 
-    if current_user.role in ["farmer", "ngo"] and project.owner_id == current_user.id:
+    if current_user.role in ["farmer", "ngo", "nco"] and project.owner_id == current_user.id:
         return
 
     if (
@@ -185,11 +187,12 @@ def create_project(
     if current_user.role not in [
         "farmer",
         "ngo",
+        "nco",
         "admin",
     ]:
         raise HTTPException(
             status_code=403,
-            detail="Only farmers, NGOs, or admins can create projects.",
+            detail="Only farmers, NGOs, NCOs, or admins can create projects.",
         )
 
     polygon_data = _process_polygon_or_400(
@@ -210,6 +213,7 @@ def create_project(
         satellite_status="pending",
         audit_status="pending",
         status="draft",
+        lifecycle_status="submitted",  # Enterprise lifecycle begins
     )
 
     db.add(new_project)
@@ -217,7 +221,7 @@ def create_project(
     db.refresh(new_project)
 
     return {
-        "message": "Project created successfully.",
+        "message": "Project submitted. Please upload land ownership proof to continue.",
         "project_id": str(new_project.id),
         "project_name": new_project.project_name,
         "project_type": new_project.project_type,
@@ -227,6 +231,8 @@ def create_project(
         "longitude": new_project.longitude,
         "land_area_acres": new_project.land_area_acres,
         "status": new_project.status,
+        "lifecycle_status": new_project.lifecycle_status,
+        "next_step": "Upload land ownership document at /api/land-verification/{project_id}/upload",
     }
 
 
@@ -244,6 +250,7 @@ def get_all_projects(
     elif current_user.role in [
         "farmer",
         "ngo",
+        "nco",
     ]:
         projects = db.query(Project).filter(
             Project.owner_id == current_user.id
@@ -356,6 +363,10 @@ def download_project_certificate(
         owner=owner,
     )
 
+    if certificate_path.startswith("http://") or certificate_path.startswith("https://"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=certificate_path)
+
     return FileResponse(
         path=certificate_path,
         media_type="application/pdf",
@@ -423,7 +434,9 @@ def approve_project(
         )
 
     project.audit_status = "approved"
-    project.status = "marketplace"
+    # Auditor approval moves to awaiting admin credit issuance — NOT directly to marketplace
+    project.status = "active"
+    project.lifecycle_status = "approved_pending_credit_issue"
     if not project.credits_available:
         project.credits_available = float(
             project.total_credits_generated or project.estimated_credits or 0
@@ -432,25 +445,22 @@ def approve_project(
     db.commit()
     db.refresh(project)
 
+    # Generate certificate immediately upon auditor approval
     certificate_result = _run_task_now(
         generate_certificate_task,
-        project_id
-    )
-
-    blockchain_result = _run_task_now(
-        mint_project_credits_task,
         project_id
     )
 
     db.refresh(project)
 
     return {
-        "message": "Project approved successfully.",
+        "message": "Project approved by auditor. Awaiting Admin credit issuance.",
         "project_id": str(project.id),
         "status": project.status,
+        "lifecycle_status": project.lifecycle_status,
         "audit_status": project.audit_status,
         "certificate": certificate_result,
-        "blockchain": blockchain_result,
+        "next_step": "Admin must approve credit issuance via /api/projects/{id}/issue-credits",
     }
 
 
@@ -513,15 +523,85 @@ def reject_project(
 
     project.audit_status = "rejected"
     project.status = "draft"
+    project.lifecycle_status = "rejected"
 
     db.commit()
     db.refresh(project)
 
     return {
-        "message": "Project rejected successfully.",
+        "message": "Project rejected.",
         "project_id": str(project.id),
-        "status": project.status,
-        "audit_status": project.audit_status,
+        "lifecycle_status": project.lifecycle_status,
+    }
+
+
+@router.post("/{project_id}/issue-credits")
+def admin_issue_credits(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ADMIN-ONLY: Final credit issuance gate. Mints credits and activates marketplace listing."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only Admin can issue carbon credits.",
+        )
+
+    project = _get_project_or_404(db, project_id)
+
+    if project.lifecycle_status != "approved_pending_credit_issue":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project must be in 'approved_pending_credit_issue' state. Current: {project.lifecycle_status}",
+        )
+
+    if project.credits_issued:
+        raise HTTPException(
+            status_code=400,
+            detail="Credits have already been issued for this project.",
+        )
+
+    # Activate marketplace listing
+    project.status = "marketplace"
+    project.lifecycle_status = "marketplace_active"
+    project.credits_issued = True
+    from datetime import datetime, timezone
+    project.credits_issued_at = datetime.now(timezone.utc)
+    project.issued_by = current_user.id
+
+    if not project.credits_available or project.credits_available == 0:
+        project.credits_available = float(
+            project.total_credits_generated or project.estimated_credits or 0
+        )
+
+    db.commit()
+    db.refresh(project)
+
+    # Mint on blockchain
+    blockchain_result = _run_task_now(mint_project_credits_task, project_id)
+
+    # Log issuance event
+    from app.models.audit_log import AuditLog
+    log = AuditLog(
+        actor_id=current_user.id,
+        target_id=project.id,
+        target_type="project",
+        action_type="credit_issuance",
+        notes=f"Admin issued {project.credits_available} credits. Marketplace activated.",
+    )
+    db.add(log)
+    db.commit()
+
+    db.refresh(project)
+
+    return {
+        "message": "Credits issued successfully. Project is now live on the marketplace.",
+        "project_id": str(project.id),
+        "lifecycle_status": project.lifecycle_status,
+        "credits_available": project.credits_available,
+        "blockchain": blockchain_result,
+        "issued_by": str(current_user.id),
     }
 
 

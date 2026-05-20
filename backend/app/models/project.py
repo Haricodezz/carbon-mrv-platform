@@ -212,6 +212,34 @@ class Project(Base):
     )
     # draft | active | marketplace | retired
 
+    # Enterprise governance lifecycle
+    # draft | submitted | awaiting_land_verification | land_verified |
+    # ml_processing | satellite_verified | auditor_review |
+    # approved_pending_credit_issue | credits_issued | marketplace_active |
+    # rejected | suspended
+    lifecycle_status = Column(
+        String,
+        default="draft",
+        nullable=False,
+        index=True,
+    )
+
+    # Set to True only when admin explicitly issues credits
+    credits_issued = Column(
+        Boolean,
+        default=False,
+    )
+
+    credits_issued_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    issued_by = Column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+
     # =========================
     # BLOCKCHAIN
     # =========================

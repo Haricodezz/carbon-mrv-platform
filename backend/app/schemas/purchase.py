@@ -2,40 +2,23 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
 
-
-class PurchaseCreditsRequest(BaseModel):
-    amount: float = Field(gt=0)
-    blockchain_tx_hash: str | None = Field(default=None, max_length=255)
-
-
-class PurchaseInitiateRequest(BaseModel):
+class CreateOrderRequest(BaseModel):
     project_id: UUID
-    amount: float = Field(gt=0)
+    amount: float = Field(gt=0, description="Amount of credits to purchase")
 
-
-class RazorpayOrderDetails(BaseModel):
-    id: str
-    amount: int
-    currency: str
-    receipt: str | None = None
-    status: str
-
-
-class PurchaseInitiateResponse(BaseModel):
+class CreateOrderResponse(BaseModel):
     order_id: str  # Razorpay order ID
-    amount: float
+    amount_inr: float
     currency: str
     project_id: UUID
-    key_id: str | None = None  # Razorpay Key ID for frontend
+    key_id: str | None = None  # Razorpay Key ID for frontend SDK
 
-
-class PurchaseVerifyRequest(BaseModel):
+class VerifyPaymentRequest(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
     project_id: UUID
     amount: float
-
 
 class PurchaseResponse(BaseModel):
     message: str
@@ -47,7 +30,6 @@ class PurchaseResponse(BaseModel):
     currency: str
     status: str
 
-
 class PurchaseHistoryResponse(BaseModel):
     purchase_id: UUID
     project_id: UUID
@@ -56,10 +38,10 @@ class PurchaseHistoryResponse(BaseModel):
     price_per_credit: float
     total_price: float
     currency: str
+    razorpay_payment_id: str | None = None
     blockchain_tx_hash: str | None = None
     status: str
     created_at: datetime
-
 
 class CreditOwnershipResponse(BaseModel):
     project_id: UUID

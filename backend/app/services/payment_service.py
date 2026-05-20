@@ -4,35 +4,50 @@ import razorpay
 from fastapi import HTTPException, status
 from app.core.config import settings
 
+_PLACEHOLDER_KEYS = {
+    "",
+    "your_key_id",
+    "your_key_secret",
+    "changeme",
+    "placeholder",
+}
+
+
+def _razorpay_is_configured() -> bool:
+    key_id = (settings.RAZORPAY_KEY_ID or "").strip()
+    key_secret = (settings.RAZORPAY_KEY_SECRET or "").strip()
+    return (
+        key_id.lower() not in _PLACEHOLDER_KEYS
+        and key_secret.lower() not in _PLACEHOLDER_KEYS
+    )
+
+
 class PaymentService:
     def __init__(self):
-        if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
-            self.client = None
+        self.is_mock = not _razorpay_is_configured()
+        if not self.is_mock:
+            self.client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
         else:
-            self.client = razorpay.Client(
-                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-            )
+            self.client = None
 
-    def create_razorpay_order(self, amount: float, currency: str = "INR", receipt: str = None):
-        if not self.client:
-            # Mock for local MVP if credentials missing, but here we should try to use real one
-            # For local MVP without credentials, we can return a mock order ID
+    def create_razorpay_order(self, amount_inr: float, currency: str = "INR", receipt: str = None):
+        if self.is_mock:
+            # Mock MVP structure
             return {
-                "id": "order_mock_" + hashlib.md5(str(amount).encode()).hexdigest()[:10],
-                "amount": int(amount * 100),
+                "id": "order_mock_" + hashlib.md5(str(amount_inr).encode()).hexdigest()[:10],
+                "amount": int(amount_inr * 100),
                 "currency": currency,
                 "status": "created"
             }
 
         try:
             data = {
-                "amount": int(amount * 100),  # Razorpay expects amount in paise
+                "amount": int(amount_inr * 100), # amount in paise
                 "currency": currency,
                 "receipt": receipt,
                 "payment_capture": 1
             }
-            order = self.client.order.create(data=data)
-            return order
+            return self.client.order.create(data=data)
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -40,12 +55,10 @@ class PaymentService:
             )
 
     def verify_payment_signature(self, razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str):
-        if not self.client:
-            # Mock verification for local MVP
-            return True
-
+        if self.is_mock:
+            return True # Auto-approve for local MVP testing
+            
         try:
-            # Verify signature
             params_dict = {
                 'razorpay_order_id': razorpay_order_id,
                 'razorpay_payment_id': razorpay_payment_id,

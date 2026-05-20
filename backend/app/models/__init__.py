@@ -8,5 +8,8 @@ from app.models.order import Order
 from app.models.purchase import Purchase
 from app.models.transaction import Transaction
 from app.models.credit_ownership import CreditOwnership
-
-
+from app.models.audit_log import AuditLog
+from app.models.blog_post import BlogPost
+from app.models.notification import Notification
+from app.models.kyc_verification import KYCVerification
+from app.models.land_verification import LandVerification

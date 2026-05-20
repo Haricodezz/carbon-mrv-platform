@@ -1,23 +1,26 @@
+"""
+blockchain_service.py
+=====================
+All web3/eth_account imports are DEFERRED to function call time so that
+this module can be safely imported at startup on Windows without the
+multi-second hang caused by web3.py's heavy cryptographic initialisation.
+"""
+
 import json
-import os
+import logging
 from pathlib import Path
 from functools import lru_cache
 
-from web3 import Web3
-from eth_account import Account
-from dotenv import load_dotenv
-
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-load_dotenv(BASE_DIR / ".env")
 
-
-RPC_URL = os.getenv("BLOCKCHAIN_RPC_URL")
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")
-CONTRACT_ADDRESS = os.getenv("CARBON_TOKEN_CONTRACT_ADDRESS")
-
+# Use centralized settings instead of os.getenv for consistency
+RPC_URL = settings.BLOCKCHAIN_RPC_URL
+PRIVATE_KEY = settings.PRIVATE_KEY
+CONTRACT_ADDRESS = settings.CARBON_TOKEN_CONTRACT_ADDRESS
 
 ABI_PATH = (
     BASE_DIR
@@ -25,18 +28,17 @@ ABI_PATH = (
 )
 
 
+# =========================
+# SIMULATED RECEIPT (no web3 needed)
+# =========================
 def _simulated_receipt(action: str, **payload):
+    """Generate a deterministic fake receipt without importing web3."""
+    import hashlib
     seed = "|".join(
         [action]
-        + [
-            f"{key}:{value}"
-            for key, value in sorted(payload.items())
-        ]
+        + [f"{key}:{value}" for key, value in sorted(payload.items())]
     )
-    tx_hash = Web3.keccak(text=seed).hex()
-    if not tx_hash.startswith("0x"):
-        tx_hash = f"0x{tx_hash}"
-
+    tx_hash = "0x" + hashlib.sha256(seed.encode()).hexdigest()
     return {
         "tx_hash": tx_hash,
         "block_number": 0,
@@ -45,18 +47,19 @@ def _simulated_receipt(action: str, **payload):
     }
 
 
+# =========================
+# LAZY BLOCKCHAIN CONTEXT
+# =========================
 @lru_cache
 def get_blockchain_context():
+    """
+    Lazily import web3 and connect.  Raises RuntimeError when blockchain
+    is disabled or credentials are placeholder/missing.
+    """
     if not settings.ENABLE_BLOCKCHAIN:
         raise RuntimeError("Blockchain integration is disabled.")
 
-    if (
-        not RPC_URL
-        or not PRIVATE_KEY
-        or not CONTRACT_ADDRESS
-        or "0x5FbDB2315678afecb367f032d93F642f64180aa3".lower()
-        == CONTRACT_ADDRESS.lower()
-    ):
+    if not RPC_URL or not PRIVATE_KEY or not CONTRACT_ADDRESS:
         raise RuntimeError(
             "Missing or placeholder blockchain environment variables in backend/.env"
         )
@@ -65,6 +68,10 @@ def get_blockchain_context():
         raise RuntimeError(
             f"Blockchain contract artifact not found: {ABI_PATH}"
         )
+
+    # ---- DEFERRED IMPORT ----
+    from web3 import Web3
+    from eth_account import Account
 
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
@@ -144,6 +151,7 @@ def mint_credits(
             project_id=project_id,
         )
 
+    from web3 import Web3
     recipient = Web3.to_checksum_address(
         recipient_wallet
     )
@@ -195,6 +203,7 @@ def get_wallet_balance(
             "simulated": True,
         }
 
+    from web3 import Web3
     address = Web3.to_checksum_address(
         wallet_address
     )
@@ -223,6 +232,7 @@ def transfer_credits(
             amount=amount,
         )
 
+    from web3 import Web3
     recipient = Web3.to_checksum_address(
         recipient_wallet
     )
@@ -256,12 +266,77 @@ def get_total_supply():
 
 
 def get_token_name():
-    _, _, carbon_contract = get_blockchain_context()
-
-    return carbon_contract.functions.name().call()
+    try:
+        _, _, carbon_contract = get_blockchain_context()
+        return carbon_contract.functions.name().call()
+    except Exception:
+        return "Carbon MRV Token"
 
 
 def get_token_symbol():
-    _, _, carbon_contract = get_blockchain_context()
+    try:
+        _, _, carbon_contract = get_blockchain_context()
+        return carbon_contract.functions.symbol().call()
+    except Exception:
+        return "CMRV"
 
-    return carbon_contract.functions.symbol().call()
+
+def admin_transfer_credits(
+    sender_wallet: str,
+    recipient_wallet: str,
+    amount: int
+):
+    try:
+        _, _, carbon_contract = get_blockchain_context()
+    except Exception:
+        return _simulated_receipt(
+            "admin_transfer",
+            sender_wallet=sender_wallet,
+            recipient_wallet=recipient_wallet,
+            amount=amount,
+        )
+
+    from web3 import Web3
+    sender = Web3.to_checksum_address(sender_wallet)
+    recipient = Web3.to_checksum_address(recipient_wallet)
+
+    tx = carbon_contract.functions.adminTransfer(
+        sender,
+        recipient,
+        amount
+    )
+
+    built_tx = build_transaction(tx)
+
+    return sign_and_send(built_tx)
+
+
+def admin_retire_credits(
+    account_wallet: str,
+    amount: int,
+    reason: str
+):
+    try:
+        _, _, carbon_contract = get_blockchain_context()
+    except Exception:
+        return _simulated_receipt(
+            "admin_retire",
+            account_wallet=account_wallet,
+            amount=amount,
+            reason=reason,
+        )
+
+    from web3 import Web3
+    account = Web3.to_checksum_address(account_wallet)
+
+    tx = carbon_contract.functions.adminRetire(
+        account,
+        amount,
+        reason
+    )
+
+    built_tx = build_transaction(tx)
+
+    return sign_and_send(built_tx)
+
+

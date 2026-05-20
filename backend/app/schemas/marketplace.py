@@ -20,6 +20,12 @@ class MarketplaceProjectResponse(BaseModel):
     audit_status: str
     status: str
     owner_id: UUID
+    co2e: float | None = None
+    total_biomass: float | None = None
+    ndvi_score: float | None = None
+    confidence_score: float | None = None
+    verification_date: str | None = None
+    methodology: str | None = None
 
 
 class CreditPricingUpdate(BaseModel):

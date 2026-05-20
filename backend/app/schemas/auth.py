@@ -5,12 +5,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
-PUBLIC_REGISTRATION_ROLES = ("farmer", "ngo", "company")
+# nco is accepted as a public alias for ngo (Non-Commercial/Non-Governmental Organisation)
+PUBLIC_REGISTRATION_ROLES = ("farmer", "ngo", "nco", "company")
 PRIVILEGED_ROLES = ("admin", "auditor")
 ALL_ROLES = (*PRIVILEGED_ROLES, *PUBLIC_REGISTRATION_ROLES)
 
-PublicRegistrationRole = Literal["farmer", "ngo", "company"]
-UserRole = Literal["admin", "auditor", "farmer", "ngo", "company"]
+PublicRegistrationRole = Literal["farmer", "ngo", "nco", "company"]
+UserRole = Literal["admin", "auditor", "farmer", "ngo", "nco", "company"]
 
 
 class RegisterRequest(BaseModel):
