@@ -83,8 +83,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         ip_request_counts[client_ip].append(current_time)
         return await call_next(request)
 
-if not settings.DEBUG:
-    app.add_middleware(RateLimitMiddleware)
+# RateLimitMiddleware is registered AFTER CORSMiddleware below
+# so that CORS (outermost layer) handles OPTIONS preflights first.
 
 # =========================
 # SECURITY HEADERS MIDDLEWARE
@@ -101,23 +101,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 # =========================
-# CORS
+# CORS  (must be added FIRST so OPTIONS preflights are handled
+# before RateLimit / SecurityHeaders middleware can reject them)
 # =========================
-allowed_origins = []
+allowed_origins = [
+    # Always allow localhost for development / healthchecks
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
 if settings.FRONTEND_URL:
-    allowed_origins.append(
-        settings.FRONTEND_URL
-    )
-
-# Local development fallback
-if settings.DEBUG:
-    allowed_origins.extend(
-        [
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ]
-    )
+    origin = settings.FRONTEND_URL.strip().rstrip("/")
+    # Normalise: ensure a scheme is present so the browser Origin header matches
+    if origin and not origin.startswith(("http://", "https://")):
+        origin = f"https://{origin}"
+    if origin and origin not in allowed_origins:
+        allowed_origins.append(origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -125,7 +124,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+# Register RateLimit AFTER CORS so CORS is the outermost middleware
+# and handles OPTIONS preflights before rate-limiting kicks in.
+if not settings.DEBUG:
+    app.add_middleware(RateLimitMiddleware)
 
 logger.info(
     f"CORS configured for: {allowed_origins}"
