@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { registerUser, saveToken } from '@/services/authService';
+import { registerUser, saveToken, getCurrentUser } from '@/services/authService';
 import { getDashboardRoute } from '@/lib/roleRedirect';
 import { useAuth } from '@/components/providers/AuthProvider';
 
@@ -56,7 +56,7 @@ export default function RegisterPage() {
         saveToken(data.access_token);
         await refreshUser();
       }
-      const currentUser = await import('@/services/authService').then(m => m.getCurrentUser());
+      const currentUser = await getCurrentUser();
       window.location.href = getDashboardRoute(currentUser?.role ?? formData.role);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Registration failed';

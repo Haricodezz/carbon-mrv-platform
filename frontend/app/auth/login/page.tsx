@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { loginUser, saveToken } from '@/services/authService';
+import { loginUser, saveToken, getCurrentUser } from '@/services/authService';
 import { getDashboardRoute } from '@/lib/roleRedirect';
 import { useAuth } from '@/components/providers/AuthProvider';
 
@@ -36,7 +36,7 @@ export default function LoginPage() {
       saveToken(loginResponse.access_token);
       await refreshUser();
       
-      const currentUser = await import('@/services/authService').then(m => m.getCurrentUser());
+      const currentUser = await getCurrentUser();
       if (currentUser) {
         window.location.href = getDashboardRoute(currentUser.role);
       } else {
